@@ -62,7 +62,7 @@ typedef nvmlReturn_t (*fn_get_mem)(nvmlDevice_t, nvmlMemory_t *);
 typedef nvmlReturn_t (*fn_get_power)(nvmlDevice_t, unsigned int *);
 typedef nvmlReturn_t (*fn_get_power_limit)(nvmlDevice_t, unsigned int *);
 typedef nvmlReturn_t (*fn_get_temp)(nvmlDevice_t, unsigned int, unsigned int *);
-typedef nvmlReturn_t (*fn_get_clock)(nvmlDevice_t, unsigned int, unsigned int, unsigned int *);
+typedef nvmlReturn_t (*fn_get_clock)(nvmlDevice_t, unsigned int, unsigned int *);
 typedef nvmlReturn_t (*fn_get_pcie)(nvmlDevice_t, unsigned int, unsigned int *);
 typedef nvmlReturn_t (*fn_get_enc)(nvmlDevice_t, unsigned int *, unsigned int *);
 typedef nvmlReturn_t (*fn_get_dec)(nvmlDevice_t, unsigned int *, unsigned int *);
@@ -349,8 +349,8 @@ static void nvml_sample_one(struct GpuBackend *b, int idx)
     if (b->p_get_power_limit) b->p_get_power_limit(b->dev[idx], &m->power_limit_mw);
     if (b->p_get_temp)      b->p_get_temp(b->dev[idx], NVML_TEMPERATURE_GPU, &m->temp_c);
     if (b->p_get_clock) {
-        b->p_get_clock(b->dev[idx], NVML_CLOCK_SM,  0, &m->clock_sm_mhz);
-        b->p_get_clock(b->dev[idx], NVML_CLOCK_MEM, 0, &m->clock_mem_mhz);
+        b->p_get_clock(b->dev[idx], NVML_CLOCK_SM,  &m->clock_sm_mhz);
+        b->p_get_clock(b->dev[idx], NVML_CLOCK_MEM, &m->clock_mem_mhz);
     }
     if (b->p_get_pcie) {
         b->p_get_pcie(b->dev[idx], NVML_PCIE_UTIL_RX_BYTES, &m->pcie_rx_kbps);
