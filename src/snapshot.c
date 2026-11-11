@@ -82,6 +82,8 @@ void snapshot_take(Snapshot *s, struct GpuBackend *b)
         app->mem_mb += (double)procs[i].mem_mb;
         if (procs[i].has_pct) {
             app->gpu_pct += (double)procs[i].sm_pct;
+            app->enc_pct += (double)procs[i].enc_pct;
+            app->dec_pct += (double)procs[i].dec_pct;
             app->has_pct = true;
         }
         if (app->pid == 0) app->pid = procs[i].pid;
@@ -225,8 +227,10 @@ static void render_json(const Snapshot *s, char *buf, unsigned cap)
             json_str(a->kind, tmp, sizeof(tmp));
             w += (unsigned)snprintf(buf + w, cap > w ? cap - w : 0,
                                     "%s,\"pid\":%u,\"gpu_pct\":%.1f,"
+                                    "\"enc_pct\":%.1f,\"dec_pct\":%.1f,"
                                     "\"mem_mb\":%.1f,\"has_pct\":%s}",
-                                    tmp, a->pid, a->gpu_pct, a->mem_mb,
+                                    tmp, a->pid, a->gpu_pct,
+                                    a->enc_pct, a->dec_pct, a->mem_mb,
                                     a->has_pct ? "true" : "false");
         }
         w += (unsigned)snprintf(buf + w, cap > w ? cap - w : 0, "]");

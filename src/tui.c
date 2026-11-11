@@ -257,9 +257,9 @@ static void draw_processes(const Snapshot *s, int row, int w, int sel)
         return;
     }
 
-    char head[160];
-    snprintf(head, sizeof(head), "  %-22s %6s  %10s  %-8s %s",
-             "PROGRAM", "GPU%", "MEMORY", "KIND", "sorted by");
+    char head[200];
+    snprintf(head, sizeof(head), "  %-20s %6s %6s %6s  %9s  %-8s %s",
+             "PROGRAM", "3D", "ENC", "DEC", "MEMORY", "KIND", "sorted by");
     text(0, y++, head, C_LABEL);
     char sm[64];
     snprintf(sm, sizeof(sm), "%s", sort_name(g_sort));
@@ -272,8 +272,8 @@ static void draw_processes(const Snapshot *s, int row, int w, int sel)
         if (a->has_pct) snprintf(pct, sizeof(pct), "%.0f", a->gpu_pct);
         else            snprintf(pct, sizeof(pct), "-");
         char line[256];
-        snprintf(line, sizeof(line), "  %-22s %6s  %8.0f MB  %s",
-                 a->name, pct, a->mem_mb, a->kind);
+        snprintf(line, sizeof(line), "  %-20s %6s %5.0f %5.0f  %7.0f MB  %s",
+                 a->name, pct, a->enc_pct, a->dec_pct, a->mem_mb, a->kind);
         text(0, y, line, i == sel ? C_REV : "");
         y++;
     }
@@ -300,8 +300,9 @@ static void draw_processes(const Snapshot *s, int row, int w, int sel)
         text(0, y++, pl, C_LABEL);
     }
     char d3[300];
-    snprintf(d3, sizeof(d3), "  gpu %.0f%%   memory %.0f MB   %d process%s",
-             a->gpu_pct, a->mem_mb, a->npids, a->npids == 1 ? "" : "es");
+    snprintf(d3, sizeof(d3), "  gpu %.0f%%   enc %.0f%%   dec %.0f%%   memory %.0f MB   %d process%s",
+             a->gpu_pct, a->enc_pct, a->dec_pct, a->mem_mb,
+             a->npids, a->npids == 1 ? "" : "es");
     text(0, y++, d3, "");
 }
 

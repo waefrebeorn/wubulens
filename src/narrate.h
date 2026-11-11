@@ -24,6 +24,8 @@ typedef struct {
     char     kind[16];       /* ai, game, video, creative, browser, desktop,
                                 dev, system, other */
     double   gpu_pct;        /* SM utilisation 0..100 */
+    double   enc_pct;        /* video encoder 0..100 */
+    double   dec_pct;        /* video decoder 0..100 */
     double   mem_mb;
     bool     has_pct;        /* false when the card cannot attribute */
     unsigned int pids[8];    /* every process in the group (end as a tree) */
