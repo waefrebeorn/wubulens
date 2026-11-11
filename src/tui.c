@@ -16,6 +16,7 @@
 #include "session.h"
 #include "ops.h"
 #include "classify.h"
+#include "history.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,9 +44,9 @@
 #define C_BAD     "\x1b[38;5;203m"
 #define C_KEY     "\x1b[38;5;117m"
 
-#define TABS 5
+#define TABS 6
 static const char *k_tab_names[TABS] = {
-    "Processes", "Performance", "GPU", "Startup", "Services"
+    "Processes", "Performance", "GPU", "Startup", "Services", "History"
 };
 
 /* -- terminal ------------------------------------------------------------ */
@@ -425,6 +426,37 @@ static void draw_services(int row, int sel)
     }
 }
 
+static void draw_history(int row)
+{
+    HistoryRow rows[HISTORY_ROWS];
+    int n = history_load(rows, HISTORY_ROWS);
+    int y = row;
+    text(0, y++, "  What has been using the machine, accumulated over time.", C_LABEL);
+    if (n == 0) {
+        text(0, y++, "", "");
+        text(0, y++, "  No history yet. It accumulates while wubulens runs.", C_LABEL);
+        char p[600];
+        snprintf(p, sizeof(p), "  Log: %s", history_path());
+        text(0, y++, p, C_DIM);
+        return;
+    }
+    char head[160];
+    snprintf(head, sizeof(head), "  %-24s %10s %12s %8s",
+             "PROGRAM", "GPU-HOURS", "PEAK MEM", "SAMPLES");
+    text(0, y++, head, C_LABEL);
+    for (int i = 0; i < n; i++) {
+        char line[256];
+        snprintf(line, sizeof(line), "  %-24.*s %10.2f %10.0f MB %8ld",
+                 (int)sizeof(line) - 40, rows[i].name,
+                 rows[i].gpu_seconds / 3600.0,
+                 rows[i].peak_mem_mb, rows[i].samples);
+        text(0, y++, line, "");
+    }
+    char p[600];
+    snprintf(p, sizeof(p), "  Log: %s", history_path());
+    text(0, y++, p, C_DIM);
+}
+
 static void draw_footer(int tab, int h, int confirm, char pending,
                         int last_rc, const AppUse *sel_app)
 {
@@ -436,12 +468,12 @@ static void draw_footer(int tab, int h, int confirm, char pending,
                  sel_app->name, C_KEY, C_RESET);
     } else {
         snprintf(line, sizeof(line),
-                 " %sTab%s next   %ss%s sort(%s)   %s/%s filter%-12s "
-                 "%sx%s end   %sp%s/%sr%s stop/go   %sn%s nice   %sq%s quit",
+                 " %sTab%s next  %ss%s sort(%s)  %s/%s filter%-12s "
+                 "%sx%s end  %sp%s/%sr%s stop/go  %sn%s nice  %sE%s efficiency  %sq%s quit",
                  C_KEY, C_RESET, C_KEY, C_RESET, sort_name(g_sort),
                  C_KEY, C_RESET, g_filtering ? "(typing)" : g_filter,
                  C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET,
-                 C_KEY, C_RESET, C_KEY, C_RESET);
+                 C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET);
     }
     text(0, h - 1, line, confirm ? C_BAD : C_DIM);
     if (last_rc != 0) {
@@ -474,6 +506,9 @@ int wubulens_tui(int demo)
 
     for (;;) {
         snapshot_take(&s, b);
+        /* the ledger: one line per app per sample, always */
+        for (int i = 0; i < s.napps; i++)
+            history_record(s.apps[i].name, s.apps[i].gpu_pct, s.apps[i].mem_mb, 1.0);
 
         int w, h;
         term_size(&w, &h);
@@ -486,6 +521,7 @@ int wubulens_tui(int demo)
             case 2: draw_gpu(&s, row, w); break;
             case 3: draw_startup(row, sel); break;
             case 4: draw_services(row, sel); break;
+            case 5: draw_history(row); break;
         }
         draw_footer(tab, h, confirm, pending, last_rc,
                    (tab == 0 && sel < s.napps) ? &s.apps[sel] : NULL);
@@ -547,6 +583,10 @@ int wubulens_tui(int demo)
                         for (int i = 0; i < a->npids; i++) last_rc = op_resume(a->pids[i]);
                     } else if (pending == 'n') {
                         for (int i = 0; i < a->npids; i++) last_rc = op_set_priority(a->pids[i], 10);
+                    } else if (pending == 'E') {
+                        for (int i = 0; i < a->npids; i++) last_rc = op_efficiency(a->pids[i]);
+                    } else if (pending == 'F') {
+                        for (int i = 0; i < a->npids; i++) last_rc = op_normal(a->pids[i]);
                     }
                 }
             }
@@ -582,7 +622,13 @@ int wubulens_tui(int demo)
             case 'n': case 'N':
                 if (tab == 0 && sel < s.napps) { pending = 'n'; confirm = 1; }
                 break;
-            case 'e': case 'E':
+            case 'E':
+                if (tab == 0 && sel < s.napps) { pending = 'E'; confirm = 1; }
+                break;
+            case 'F':
+                if (tab == 0 && sel < s.napps) { pending = 'F'; confirm = 1; }
+                break;
+            case 'e':
                 if (tab == 3) {
                     const AutostartEntry *e = autostart_entry(sel);
                     if (e) autostart_set_enabled(sel, !e->enabled);

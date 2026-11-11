@@ -3,7 +3,7 @@ CC      ?= cc
 CFLAGS  ?= -O2 -std=c11 -Wall -Wextra -D_POSIX_C_SOURCE=200809L -Isrc
 LDFLAGS ?= -ldl
 
-SRC := src/perf.c src/proc.c src/gpu.c src/classify.c src/narrate.c src/snapshot.c src/session.c src/tui.c src/ops.c
+SRC := src/perf.c src/proc.c src/gpu.c src/classify.c src/narrate.c src/snapshot.c src/session.c src/tui.c src/ops.c src/history.c
 BIN := wubulens
 
 all: $(BIN)

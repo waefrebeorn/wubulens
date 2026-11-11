@@ -72,6 +72,16 @@ OpResult op_set_priority(unsigned int pid, int nice)
     return OP_OK;
 }
 
+OpResult op_efficiency(unsigned int pid)
+{
+    return op_set_priority(pid, 19);
+}
+
+OpResult op_normal(unsigned int pid)
+{
+    return op_set_priority(pid, 0);
+}
+
 const char *op_error(OpResult r)
 {
     switch (r) {

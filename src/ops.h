@@ -28,6 +28,11 @@ OpResult op_suspend(unsigned int pid);
 OpResult op_resume(unsigned int pid);
 OpResult op_set_priority(unsigned int pid, int nice);
 
+/* Efficiency mode: yield the CPU (nice 19). The reverse is nice 0. This is
+ * what an efficiency mode actually does to a process on Linux. */
+OpResult op_efficiency(unsigned int pid);
+OpResult op_normal(unsigned int pid);
+
 const char *op_error(OpResult r);
 
 /* A short human label for an operation, for the footer and confirmations. */
