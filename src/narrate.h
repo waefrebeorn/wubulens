@@ -26,6 +26,8 @@ typedef struct {
     double   gpu_pct;        /* SM utilisation 0..100 */
     double   mem_mb;
     bool     has_pct;        /* false when the card cannot attribute */
+    unsigned int pids[8];    /* every process in the group (end as a tree) */
+    int      npids;
 } AppUse;
 
 typedef struct {

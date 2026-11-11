@@ -85,6 +85,7 @@ void snapshot_take(Snapshot *s, struct GpuBackend *b)
             app->has_pct = true;
         }
         if (app->pid == 0) app->pid = procs[i].pid;
+        if (app->npids < 8) app->pids[app->npids++] = procs[i].pid;
     }
 
     qsort(s->apps, (size_t)s->napps, sizeof(AppUse), cmp_apps);

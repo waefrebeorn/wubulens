@@ -14,6 +14,7 @@
 #include "narrate.h"
 #include "snapshot.h"
 #include "session.h"
+#include "ops.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -326,17 +327,28 @@ static void draw_services(int row, int sel)
     }
 }
 
-static void draw_footer(int tab, int h)
+static void draw_footer(int tab, int h, int confirm, char pending,
+                        int last_rc, const AppUse *sel_app)
 {
-    char line[256];
-    snprintf(line, sizeof(line),
-             " %sTab%s next   %s?%s keys   %sq%s quit",
-             C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET);
-    text(0, h - 1, line, C_DIM);
-    char pos[64];
-    snprintf(pos, sizeof(pos), " %s ", k_tab_names[tab]);
-    text(0, h - 2, "", "");
-    (void)pos;
+    char line[512];
+    if (confirm && sel_app) {
+        snprintf(line, sizeof(line),
+                 " %s%s%s %s -- %sy%s to confirm, anything else cancels",
+                 C_BAD, op_name((const char[]){pending, 0}), C_RESET,
+                 sel_app->name, C_KEY, C_RESET);
+    } else {
+        snprintf(line, sizeof(line),
+                 " %sTab%s next   %sx%s end   %sp%s/%sr%s stop/go   "
+                 "%sn%s nice   %sq%s quit",
+                 C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET,
+                 C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET);
+    }
+    text(0, h - 1, line, confirm ? C_BAD : C_DIM);
+    if (last_rc != 0) {
+        snprintf(line, sizeof(line), " %s", op_error(last_rc));
+        text(0, h - 2, line, last_rc == OP_OK ? C_GOOD : C_BAD);
+    }
+    (void)tab;
 }
 
 /* -- main loop ----------------------------------------------------------- */
@@ -354,6 +366,9 @@ int wubulens_tui(int demo)
 
     int tab = 0;
     int sel = 0;
+    int confirm = 0;          /* waiting for y/n on an operation */
+    char pending = 0;         /* which operation is pending */
+    int last_rc = 0;          /* OpResult of the last operation */
     Snapshot s;
     memset(&s, 0, sizeof(s));
 
@@ -372,7 +387,8 @@ int wubulens_tui(int demo)
             case 3: draw_startup(row, sel); break;
             case 4: draw_services(row, sel); break;
         }
-        draw_footer(tab, h);
+        draw_footer(tab, h, confirm, pending, last_rc,
+                   (tab == 0 && sel < s.napps) ? &s.apps[sel] : NULL);
         fflush(stdout);
 
         /* wait for a key or about a second, whichever comes first */
@@ -399,6 +415,29 @@ int wubulens_tui(int demo)
             continue;
         }
 
+        if (confirm) {
+            char k = (char)key[0];
+            confirm = 0;
+            if (k == 'y' || k == 'Y') {
+                const AppUse *a = (tab == 0 && sel < s.napps) ? &s.apps[sel] : NULL;
+                if (a) {
+                    if (pending == 'x') {
+                        for (int i = 0; i < a->npids; i++) {
+                            last_rc = op_end_task(a->pids[i]);
+                            if (last_rc != OP_OK) break;
+                        }
+                    } else if (pending == 'p') {
+                        for (int i = 0; i < a->npids; i++) last_rc = op_suspend(a->pids[i]);
+                    } else if (pending == 'r') {
+                        for (int i = 0; i < a->npids; i++) last_rc = op_resume(a->pids[i]);
+                    } else if (pending == 'n') {
+                        for (int i = 0; i < a->npids; i++) last_rc = op_set_priority(a->pids[i], 10);
+                    }
+                }
+            }
+            continue;
+        }
+
         switch (key[0]) {
             case 'q': case 'Q': case 0x03:
                 raw_off();
@@ -410,6 +449,18 @@ int wubulens_tui(int demo)
                 tab = (tab + TABS - 1) % TABS; break;
             case 'j': case 'J': sel++; break;
             case 'k': case 'K': if (sel > 0) sel--; break;
+            case 'x': case 'X':
+                if (tab == 0 && sel < s.napps) { pending = 'x'; confirm = 1; }
+                break;
+            case 'p': case 'P':
+                if (tab == 0 && sel < s.napps) { pending = 'p'; confirm = 1; }
+                break;
+            case 'r': case 'R':
+                if (tab == 0 && sel < s.napps) { pending = 'r'; confirm = 1; }
+                break;
+            case 'n': case 'N':
+                if (tab == 0 && sel < s.napps) { pending = 'n'; confirm = 1; }
+                break;
             case 'e': case 'E':
                 if (tab == 3) {
                     const AutostartEntry *e = autostart_entry(sel);
