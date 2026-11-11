@@ -6,11 +6,14 @@
 #include "ops.h"
 
 #include <signal.h>
+#include <stdio.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <time.h>
+#include <fcntl.h>
+#include <sys/wait.h>
 
 OpResult op_end_task(unsigned int pid)
 {
@@ -80,6 +83,46 @@ OpResult op_efficiency(unsigned int pid)
 OpResult op_normal(unsigned int pid)
 {
     return op_set_priority(pid, 0);
+}
+
+#define OP_RUN_MAX_ARGS 32
+
+OpResult op_run(const char *command, long *out_pid)
+{
+    if (!command || command[0] == '\0') return OP_ERR_NOTFOUND;
+
+    char buf[1024];
+    snprintf(buf, sizeof(buf), "%s", command);
+
+    char *argv[OP_RUN_MAX_ARGS + 1];
+    int argc = 0;
+    char *p = buf;
+    while (*p && argc < OP_RUN_MAX_ARGS) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        argv[argc++] = p;
+        while (*p && *p != ' ' && *p != '\t') p++;
+        if (*p) *p++ = '\0';
+    }
+    argv[argc] = NULL;
+    if (argc == 0) return OP_ERR_NOTFOUND;
+
+    pid_t pid = fork();
+    if (pid < 0) return OP_ERR_FAIL;
+    if (pid == 0) {
+        setsid();                       /* its own session, not our TUI's */
+        int null = open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            dup2(null, STDIN_FILENO);
+            dup2(null, STDOUT_FILENO);
+            dup2(null, STDERR_FILENO);
+            if (null > STDERR_FILENO) close(null);
+        }
+        execvp(argv[0], argv);
+        _exit(127);                     /* not found, not executable, ... */
+    }
+    if (out_pid) *out_pid = (long)pid;
+    return OP_OK;
 }
 
 const char *op_error(OpResult r)

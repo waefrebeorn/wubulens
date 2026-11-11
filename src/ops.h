@@ -33,6 +33,11 @@ OpResult op_set_priority(unsigned int pid, int nice);
 OpResult op_efficiency(unsigned int pid);
 OpResult op_normal(unsigned int pid);
 
+/* Run a program: fork, detach into its own session, exec. The command is
+ * split on whitespace (no shell -- no injection). Returns OP_OK once the
+ * child is running; the pid comes back through out_pid when non-NULL. */
+OpResult op_run(const char *command, long *out_pid);
+
 const char *op_error(OpResult r);
 
 /* A short human label for an operation, for the footer and confirmations. */

@@ -167,6 +167,11 @@ static SortMode g_sort = SORT_GPU;
 static char g_filter[64];
 static int  g_filtering;
 
+/* "Run new task": the typed command, and whether the prompt is open. */
+static char g_run[256];
+static int  g_run_input;
+static long g_last_pid;
+
 /* a small case-insensitive substring search (no locale dependency) */
 static int strcasestr_local(const char *hay, const char *needle)
 {
@@ -479,19 +484,29 @@ static void draw_footer(int tab, int h, int confirm, char pending,
                  " %s%s%s %s -- %sy%s to confirm, anything else cancels",
                  C_BAD, op_name((const char[]){pending, 0}), C_RESET,
                  sel_app->name, C_KEY, C_RESET);
+    } else if (g_run_input) {
+        snprintf(line, sizeof(line), " run: %s", g_run);
+        text(0, h - 1, line, C_HEAD);
+        return;
     } else {
         snprintf(line, sizeof(line),
                  " %sTab%s next  %ss%s sort(%s)  %s/%s filter%-12s "
-                 "%sx%s end  %sp%s/%sr%s stop/go  %sn%s nice  %sE%s efficiency  %sq%s quit",
+                 "%sR%s run  %sx%s end  %sp%s/%sr%s stop/go  %sn%s nice  %sE%s efficiency  %sq%s quit",
                  C_KEY, C_RESET, C_KEY, C_RESET, sort_name(g_sort),
                  C_KEY, C_RESET, g_filtering ? "(typing)" : g_filter,
                  C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET,
-                 C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET);
+                 C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET,
+                 C_KEY, C_RESET);
     }
     text(0, h - 1, line, confirm ? C_BAD : C_DIM);
     if (last_rc != 0) {
-        snprintf(line, sizeof(line), " %s", op_error(last_rc));
-        text(0, h - 2, line, last_rc == OP_OK ? C_GOOD : C_BAD);
+        if (last_rc == OP_OK && g_last_pid > 0) {
+            snprintf(line, sizeof(line), " started pid %ld", g_last_pid);
+            text(0, h - 2, line, C_GOOD);
+        } else {
+            snprintf(line, sizeof(line), " %s", op_error(last_rc));
+            text(0, h - 2, line, C_BAD);
+        }
     }
     (void)tab;
 }
@@ -571,6 +586,24 @@ int wubulens_tui(int demo)
             continue;
         }
 
+        if (g_run_input) {
+            char k = (char)key[0];
+            if (k == '\r' || k == '\n') {
+                g_run_input = 0;
+                last_rc = op_run(g_run, &g_last_pid);
+            } else if (k == 0x1b) {
+                g_run_input = 0;
+                g_run[0] = '\0';
+            } else if (k == 0x7f || k == 0x08) {
+                size_t n = strlen(g_run);
+                if (n) g_run[n - 1] = '\0';
+            } else if (k >= 32 && k < 127) {
+                size_t n = strlen(g_run);
+                if (n + 1 < sizeof(g_run)) { g_run[n] = k; g_run[n + 1] = '\0'; }
+            }
+            continue;
+        }
+
         if (g_filtering) {
             char k = (char)key[0];
             if (k == '\r' || k == '\n' || k == 0x1b) {
@@ -630,13 +663,17 @@ int wubulens_tui(int demo)
             case '/':
                 g_filtering = 1;
                 break;
+            case 'R':
+                g_run[0] = '\0';
+                g_run_input = 1;
+                break;
             case 'x': case 'X':
                 if (tab == 0 && sel < s.napps) { pending = 'x'; confirm = 1; }
                 break;
             case 'p': case 'P':
                 if (tab == 0 && sel < s.napps) { pending = 'p'; confirm = 1; }
                 break;
-            case 'r': case 'R':
+            case 'r':
                 if (tab == 0 && sel < s.napps) { pending = 'r'; confirm = 1; }
                 break;
             case 'n': case 'N':

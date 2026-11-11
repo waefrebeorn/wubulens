@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <time.h>
+#include <unistd.h>
 
 static int failures;
 static int checks;
@@ -131,6 +132,24 @@ int main(void)
     CHECK(op_resume(999999u) == OP_ERR_NOTFOUND, "a dead pid is not found (resume)");
     CHECK(op_end_task(999999u) == OP_ERR_NOTFOUND, "a dead pid is not found (end)");
     CHECK(op_set_priority(999999u, 5) == OP_ERR_NOTFOUND, "a dead pid is not found (nice)");
+
+    /* run new task: a real program, launched and detached */
+    long launched = 0;
+    CHECK(op_run("sleep 30", &launched) == OP_OK, "run succeeds");
+    CHECK(launched > 0, "the launched pid comes back");
+    char rp[64];
+    snprintf(rp, sizeof(rp), "/proc/%ld/stat", launched);
+    CHECK(access(rp, F_OK) == 0, "the launched process exists");
+    /* it is detached from this test's session -- but the child needs a
+     * moment to reach setsid(), so settle before asserting */
+    for (int i = 0; i < 50 && getpgid((pid_t)launched) == getpgrp(); i++) {
+        struct timespec ts = {0, 20000000L};   /* 20 ms */
+        nanosleep(&ts, NULL);
+    }
+    CHECK(getpgid((pid_t)launched) != getpgrp(), "the child is in its own session");
+    CHECK(op_run("", &launched) == OP_ERR_NOTFOUND, "an empty command is refused");
+    CHECK(op_run("   ", &launched) == OP_ERR_NOTFOUND, "a blank command is refused");
+    kill((pid_t)launched, SIGTERM);
 
     /* the error text is human, not a raw errno */
     CHECK(strcmp(op_error(OP_ERR_PERM), "done") != 0, "a failure is not called done");
