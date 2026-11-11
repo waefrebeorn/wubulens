@@ -147,6 +147,16 @@ const char *classify_description(AppKind k)
     }
 }
 
+const char *classify_description_by_name(const char *kind_name)
+{
+    if (!kind_name) return "";
+    for (int k = 0; k < KIND_COUNT; k++) {
+        if (strcmp(kind_name, classify_kind_name((AppKind)k)) == 0)
+            return classify_description((AppKind)k);
+    }
+    return "";
+}
+
 void classify_group_key(const char *exe, const char *cmdline,
                         char *key, unsigned cap)
 {

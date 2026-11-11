@@ -15,6 +15,7 @@
 #include "snapshot.h"
 #include "session.h"
 #include "ops.h"
+#include "classify.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -134,6 +135,61 @@ static int wrap(const char *s, int width, char lines[][256], int cap)
     return n;
 }
 
+/* -- sorting and filtering ------------------------------------------------ */
+
+typedef enum { SORT_GPU = 0, SORT_MEM, SORT_NAME, SORT_KIND, SORT_COUNT } SortMode;
+
+static const char *sort_name(SortMode m)
+{
+    switch (m) {
+        case SORT_GPU:  return "GPU time";
+        case SORT_MEM:  return "memory";
+        case SORT_NAME: return "name";
+        case SORT_KIND: return "kind";
+        default:        return "GPU time";
+    }
+}
+
+static SortMode g_sort = SORT_GPU;
+static char g_filter[64];
+static int  g_filtering;
+
+/* a small case-insensitive substring search (no locale dependency) */
+static int strcasestr_local(const char *hay, const char *needle)
+{
+    if (!hay || !needle || !needle[0]) return 0;
+    size_t nl = strlen(needle);
+    for (const char *p = hay; *p; p++) {
+        size_t i = 0;
+        while (i < nl && p[i] &&
+               ((p[i] >= 'A' && p[i] <= 'Z') ? (char)(p[i] + 32) : p[i]) ==
+               ((needle[i] >= 'A' && needle[i] <= 'Z') ? (char)(needle[i] + 32) : needle[i]))
+            i++;
+        if (i == nl) return 1;
+    }
+    return 0;
+}
+
+static int match_filter(const AppUse *a)
+{
+    if (g_filter[0] == '\0') return 1;
+    return strcasestr_local(a->name, g_filter) || strcasestr_local(a->kind, g_filter);
+}
+
+static int cmp_apps(const void *a, const void *b)
+{
+    const AppUse *x = (const AppUse *)a;
+    const AppUse *y = (const AppUse *)b;
+    int r = 0;
+    switch (g_sort) {
+        case SORT_MEM:  r = (x->mem_mb > y->mem_mb) ? -1 : (x->mem_mb < y->mem_mb) ? 1 : 0; break;
+        case SORT_NAME: r = strcmp(x->name, y->name); break;
+        case SORT_KIND: r = strcmp(x->kind, y->kind); break;
+        default:        r = (x->gpu_pct > y->gpu_pct) ? -1 : (x->gpu_pct < y->gpu_pct) ? 1 : 0; break;
+    }
+    return r;
+}
+
 /* -- views --------------------------------------------------------------- */
 
 static void draw_header(const Snapshot *s, int w, int tab)
@@ -170,19 +226,35 @@ static void draw_processes(const Snapshot *s, int row, int w, int sel)
 {
     int y = row;
     (void)w;
+
     if (s->napps == 0) {
         text(0, y++, "  Nothing is using the GPU right now.", C_LABEL);
         return;
     }
-    char head[128];
-    snprintf(head, sizeof(head), "  %-22s %6s  %10s  %s",
-             "PROGRAM", "GPU%", "MEMORY", "KIND");
-    text(0, y++, head, C_LABEL);
 
-    int visible = y + 12;
-    (void)visible;
-    for (int i = 0; i < s->napps; i++) {
-        const AppUse *a = &s->apps[i];
+    /* filter, then sort */
+    AppUse list[64];
+    int n = 0;
+    for (int i = 0; i < s->napps && n < 64; i++)
+        if (match_filter(&s->apps[i])) list[n++] = s->apps[i];
+    if (n > 1) qsort(list, (size_t)n, sizeof(AppUse), cmp_apps);
+
+    if (n == 0) {
+        text(0, y++, "  Nothing matches that filter.", C_LABEL);
+        return;
+    }
+
+    char head[160];
+    snprintf(head, sizeof(head), "  %-22s %6s  %10s  %-8s %s",
+             "PROGRAM", "GPU%", "MEMORY", "KIND", "sorted by");
+    text(0, y++, head, C_LABEL);
+    char sm[64];
+    snprintf(sm, sizeof(sm), "%s", sort_name(g_sort));
+    text((int)strlen(head) + 1, y - 1, sm, C_DIM);
+
+    if (sel >= n) sel = n - 1;
+    for (int i = 0; i < n; i++) {
+        const AppUse *a = &list[i];
         char pct[16];
         if (a->has_pct) snprintf(pct, sizeof(pct), "%.0f", a->gpu_pct);
         else            snprintf(pct, sizeof(pct), "-");
@@ -192,6 +264,32 @@ static void draw_processes(const Snapshot *s, int row, int w, int sel)
         text(0, y, line, i == sel ? C_REV : "");
         y++;
     }
+
+    /* the detail pane: what the selected program is */
+    const AppUse *a = &list[sel];
+    y++;
+    text(0, y++, "  ---", C_LABEL);
+    char d1[300];
+    snprintf(d1, sizeof(d1), "  %s   (%s)", a->name, a->kind);
+    text(0, y++, d1, C_BOLD);
+    const char *desc = classify_description_by_name(a->kind);
+    if (desc && desc[0]) {
+        char wline[8][256];
+        char pref[300];
+        snprintf(pref, sizeof(pref), "  %s", desc);
+        int nw = wrap(pref, 90, wline, 8);
+        for (int i = 0; i < nw; i++) text(0, y++, wline[i], C_LABEL);
+    }
+    /* pids, one per line (up to four) */
+    for (int i = 0; i < a->npids && i < 4; i++) {
+        char pl[128];
+        snprintf(pl, sizeof(pl), "  pid %u", a->pids[i]);
+        text(0, y++, pl, C_LABEL);
+    }
+    char d3[300];
+    snprintf(d3, sizeof(d3), "  gpu %.0f%%   memory %.0f MB   %d process%s",
+             a->gpu_pct, a->mem_mb, a->npids, a->npids == 1 ? "" : "es");
+    text(0, y++, d3, "");
 }
 
 static void draw_performance(const Snapshot *s, int row, int w)
@@ -338,10 +436,12 @@ static void draw_footer(int tab, int h, int confirm, char pending,
                  sel_app->name, C_KEY, C_RESET);
     } else {
         snprintf(line, sizeof(line),
-                 " %sTab%s next   %sx%s end   %sp%s/%sr%s stop/go   "
-                 "%sn%s nice   %sq%s quit",
+                 " %sTab%s next   %ss%s sort(%s)   %s/%s filter%-12s "
+                 "%sx%s end   %sp%s/%sr%s stop/go   %sn%s nice   %sq%s quit",
+                 C_KEY, C_RESET, C_KEY, C_RESET, sort_name(g_sort),
+                 C_KEY, C_RESET, g_filtering ? "(typing)" : g_filter,
                  C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET,
-                 C_KEY, C_RESET, C_KEY, C_RESET, C_KEY, C_RESET);
+                 C_KEY, C_RESET, C_KEY, C_RESET);
     }
     text(0, h - 1, line, confirm ? C_BAD : C_DIM);
     if (last_rc != 0) {
@@ -415,6 +515,21 @@ int wubulens_tui(int demo)
             continue;
         }
 
+        if (g_filtering) {
+            char k = (char)key[0];
+            if (k == '\r' || k == '\n' || k == 0x1b) {
+                g_filtering = 0;                 /* Enter keeps, Esc clears */
+                if (k == 0x1b) g_filter[0] = '\0';
+            } else if (k == 0x7f || k == 0x08) {
+                size_t n = strlen(g_filter);
+                if (n) g_filter[n - 1] = '\0';
+            } else if (k >= 32 && k < 127) {
+                size_t n = strlen(g_filter);
+                if (n + 1 < sizeof(g_filter)) { g_filter[n] = k; g_filter[n + 1] = '\0'; }
+            }
+            continue;
+        }
+
         if (confirm) {
             char k = (char)key[0];
             confirm = 0;
@@ -449,6 +564,12 @@ int wubulens_tui(int demo)
                 tab = (tab + TABS - 1) % TABS; break;
             case 'j': case 'J': sel++; break;
             case 'k': case 'K': if (sel > 0) sel--; break;
+            case 's': case 'S':
+                g_sort = (SortMode)((g_sort + 1) % SORT_COUNT);
+                break;
+            case '/':
+                g_filtering = 1;
+                break;
             case 'x': case 'X':
                 if (tab == 0 && sel < s.napps) { pending = 'x'; confirm = 1; }
                 break;

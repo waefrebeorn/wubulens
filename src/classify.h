@@ -28,7 +28,11 @@ const char *classify_kind_name(AppKind k);
 void classify_group_key(const char *exe, const char *cmdline,
                         char *key, unsigned cap);
 
-/* True when a kind should be shown with its plain description. */
+/* The plain description of a kind. */
 const char *classify_description(AppKind k);
+
+/* The same, looked up by the kind's name ("ai", "game", ...). Returns ""
+ * for an unknown name -- never a guess. */
+const char *classify_description_by_name(const char *kind_name);
 
 #endif /* WUBULENS_CLASSIFY_H */
