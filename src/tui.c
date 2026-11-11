@@ -26,6 +26,8 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <time.h>
+#include <signal.h>
+#include <errno.h>
 
 /* -- colour -------------------------------------------------------------- */
 
@@ -54,6 +56,13 @@ static const char *k_tab_names[TABS] = {
 static struct termios g_saved;
 static int g_raw = 0;
 
+/* The terminal must be restored even when the process is signalled, or the
+ * user's shell is left in raw mode. ISIG stays enabled so Ctrl-C arrives as
+ * SIGINT (never as a 0x03 byte), and the handler only sets a flag -- the loop
+ * notices it, restores, and exits cleanly. */
+static volatile sig_atomic_t g_interrupted = 0;
+static void on_signal(int sig) { (void)sig; g_interrupted = 1; }
+
 static void raw_on(void)
 {
     if (tcgetattr(STDIN_FILENO, &g_saved) != 0) return;
@@ -63,6 +72,9 @@ static void raw_on(void)
     t.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSANOW, &t);
     g_raw = 1;
+    g_interrupted = 0;
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
     printf("\x1b[?1049h");          /* alternate screen */
     printf("\x1b[?25l");            /* hide the cursor */
     fflush(stdout);
@@ -533,7 +545,14 @@ int wubulens_tui(int demo)
         FD_SET(STDIN_FILENO, &fds);
         struct timeval tv = {1, 0};
         int ready = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
-        if (ready <= 0) continue;
+        if (ready < 0 && errno == EINTR) {
+            if (g_interrupted) break;
+            continue;
+        }
+        if (ready <= 0) {
+            if (g_interrupted) break;
+            continue;
+        }
 
         char key[8];
         ssize_t n = read(STDIN_FILENO, key, sizeof(key));
@@ -640,4 +659,9 @@ int wubulens_tui(int demo)
             default: break;
         }
     }
+
+    /* signalled out of the loop: restore before leaving */
+    raw_off();
+    gpu_close(b);
+    return 130;
 }
